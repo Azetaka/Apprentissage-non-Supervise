@@ -1,0 +1,354 @@
+---
+title: "Projet Apprentissage non Supervisé"
+author: "FAGNINOU Uriel, FOFANA Mohamed & KOFFI AKA Cédric"
+date: "2024-05-01"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+    toc: true
+---
+
+```{r setup, include=FALSE,comment=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE,comment = NA)
+library(cluster)
+library(FactoMineR)
+library(factoextra)
+library(dendextend)
+library(ggplot2)
+library(kernlab)
+library(gridExtra)
+library(tidyverse)
+library(stargazer)
+library(corrplot)
+library(ggdendro)
+library(ggplot2)
+library(NbClust)
+library(GGally)
+library(dplyr)
+library(tidymodels)
+library(mclust)
+setwd("D:/Home/ufagninou/Documents/RENNES 1/Semestre 8/Apprentissage non supervisé/Projet_FAGNINOU_FOFANA_KOFFI")
+```
+
+\newpage
+
+# Introduction 
+
+L'objectif du projet est de réaliser une analyse approfondie des performances des joueurs de PUBG: Battlegrounds en mode solo, en utilisant un jeu de données comprenant des informations telles que le pourcentage de victoires, le temps de survie, le nombre de parties jouées, le nombre de victoires, les statistiques de tirs, les déplacements, etc.
+
+L'analyse vise à découvrir des tendances, à identifier des comportements typiques des joueurs et à comprendre comment ces éléments influencent le succès dans le jeu. L'objectif final est de déterminer ce qui rend certains joueurs meilleurs dans les jeux vidéo compétitifs en ligne, en identifiant les facteurs importants pour gagner.
+
+Pour atteindre cet objectif, le projet se décompose en deux grandes étapes : comprendre et pré-traiter les données, puis classifier les joueurs en utilisant différents algorithmes abordés en cours. À travers ces étapes, l'analyse cherche à extraire des insights significatifs sur les performances des joueurs et à proposer des conclusions sur les facteurs clés de succès dans PUBG: Battlegrounds en mode solo. 
+
+# 1. Pré-traitement des données 
+```{r,echo=FALSE}
+data=read.csv("PUBG.csv",sep=",",header=TRUE,row.names = 1)
+```
+
+## Traitements des valeurs manquantes 
+```{r}
+sum(is.na(data))
+```
+
+On constate qu'il n'y a pas de données manquantes dans notre base de données, ce qui est bon signe pour la suite de l'analyse.
+
+## Statistiques descriptives 
+
+Pour en apprendre davantage sur notre variable d'intérêt et nos variables explicatives, nous allons procéder à une analyse statistique desctriptive.
+```{r,echo=FALSE}
+stargazer(data,type = "text", title="Statisque Descriptive", digits=2, out="stat_desc.txt")
+```
+Dans l'ensemble, les statistiques descriptives fournissent une vue d'ensemble des performances des joueurs dans le jeu. Les variables telles que le temps de survie(TimeSurvived), le nombre de victoires (Wins), le nombre totals de tués(kills) etc... montrent une grande variabilité parmi les joueurs. Certains joueurs ont des performances exceptionnelles, tandis que d'autres sont plus modestes.
+
+Cependant, il est important de noter que ces statistiques ne fournissent qu'une vue d'ensemble. Par exemple, un joueur avec un faible nombre de victoires peut encore être très compétent dans d'autres aspects du jeu, comme infliger des dégâts ou aider son équipe.
+
+De plus, la standardisation des données peut être une étape importante pour analyser les performances relatives des joueurs, en mettant toutes les variables sur une même échelle. Cela permet de comparer plus facilement les performances des joueurs dans différentes dimensions du jeu. Ainsi pour la suite du projet, nous décidons de centrer et réduire notre jeu de donnée. 
+
+```{r}
+data=as.data.frame(scale(data))
+```
+
+## ACP (Analyse en Composantes Principales)
+
+```{r,warning=FALSE,fig.width=15, fig.height=7, fig.align='center',echo=FALSE}
+fit = PCA(data, graph = F) # réalisation de l'ACP sans corrélation 
+#stargazer(fit$var$cor,type="text")
+plot(fit,choix="var",axes=c(1,2)) # cercle de corrélation
+```
+Les résultats de l'Analyse en Composantes Principales (ACP) révèlent des corrélations importantes entre les variables analysées. Dans la première dimension (Dim.1), la variable présentant la plus grande charge factorielle est "TimeSurvived" avec une valeur de 0.970, suivie de près par "RoundsPlayed", "WalkDistance", "Boosts", "DamageDealt", "Wins", "Kills", "Assists", "Headshotkills", "RideDistance", "MoveDistance", "Heals", et "Boots". Ces valeurs suggèrent une forte corrélation positive avec cette dimension.
+
+Ces corrélations impliquent, par exemple, que les joueurs qui obtiennent un nombre élevé de kills ont tendance à également accumuler plus d'assists et à infliger davantage de dégâts, ce qui est cohérent dans un contexte de jeu de tir.
+
+Dans la deuxième dimension (Dim.2), des variables telles que "WinRatio", "Top10Ratio", "DamagePg", "HealsPg", "KillsPg", "TimeSurvivedPg", "AvgWalkDistance" et "AvgRideDistance" affichent des charges factorielles significatives. Cela indique une corrélation positive avec cette dimension. Par exemple, les joueurs ayant un ratio de victoires élevé tendent également à avoir un ratio élevé de top 10 et à infliger plus de dégâts par partie. De même, ceux qui réalisent plus de kills par partie ont tendance à parcourir des distances plus longues en moyenne et à survivre plus longtemps par partie.
+
+## Analyse de la corrélation
+
+```{r,echo=FALSE,include=FALSE}
+Matrice_de_Correlation=cor(data)
+#stargazer(Matrice_de_Correlation,   title="Matrice de correlation ",align=TRUE, type="text", digits=3)
+corrplot(Matrice_de_Correlation,method = "number",type="upper",
+         number.cex = 0.7,number.digits = 2)
+```
+
+Nous avons remarqué dans notre jeu de données la présence de **variables redondantes** c'est à dire des variables qui nous apportent plus ou moins la même information (leur coefficient de corrélation est voisin à 1). Il s'agit là de:  (**WinRatio** et **Wins**), (**Top10s** et **Top10Ratio**), (**Kills** et **KillsPg**), (**HeadshotKills** et **HeadshotKillsPg**), (**DamageDealt** et **DamagePg**), (**Heals** et **HealsPg**),(**MoveDistance** et **MoveDistancePg**), (**TimeSurvived** et **TimeSurvivedPg**), (**RideDistance** et **AvgRideDistance**) pour terminer (**WalkDistance** et **AvgWalkDistance**).
+
+Ces variables redondantes sont susceptibles d'apporter un biais à notre analyse finale ou alors nous conduire à un pas très clair où les résultats ne seront pas très satisfaisants. De ce fait, nous allons prendre la peine de supprimer les suivantes: Wins, Top10s, Kills, HeadshotKills, DamageDealt, RideDistance, WalkDistance, MoveDistance, Heals, TimeSurvived.
+
+```{r,echo=FALSE,include=FALSE}
+data= data |>
+  select(-Wins, -Top10s, -Kills, -HeadshotKills, -DamageDealt, -RideDistance, -WalkDistance, -MoveDistance, -Heals, -TimeSurvived)
+
+```
+
+# 2. Classification
+  
+## 2.1 Classifictaion Ascendante Hiérachique (CAH)
+
+Nous procédons à la Classification Ascendante Hiérarchique (CAH) pour notre projet, nous pourrons explorer de manière approfondie la structure sous-jacente de nos données, identifier des regroupements naturels et révéler des insights précieux pour une prise de décision éclairée.
+
+Dans ce contexte, nous essayons la *distance du saut minimal* en premier lieu, car elle permet de bien séparer les individus, même si elle peut conduire à des groupes peu compacts. Ensuite, nous envisageons d'utiliser la *distance de Wald*, qui pourrait être plus adaptée à notre objectif.
+
+## 2.1.1 Avec la distance du saut minimal
+
+```{r,fig.width=15, fig.height=7, fig.align='center',echo=FALSE}
+
+cah_single=hclust(dist(data,method="euclidean"), method = "single")
+
+perte_df = tibble::tibble(groupes = c(1:15), inertie = rev(cah_single$height)[1:15])
+
+gf1=ggdendrogram(cah_single, labels = F)+
+  ggtitle("Dendogramme des classes")
+
+gf2 = ggplot(data = perte_df)+ aes(x=groupes, y=inertie)+
+  geom_line(color = "blue")+
+  ggtitle("Perte d'inertie en fonction de nombre de classes")
+
+grid.arrange(gf1,gf2,nrow=1)
+```
+
+Le tracé de la perte d'inertie nous incite à choisir une partition en 4 groupes (lecture de gauche à droite : juste avant le coude ou changement de pente s'opérant au passage de 4 à 3 groupes). 
+
+```{r,echo=FALSE}
+groupe_cah_single=cutree(cah_single, k=4)
+summary(as.factor(groupe_cah_single))
+```
+Avec la distance du saut minimal, on a 1 groupe contenant presque tous les individus puis des groupes ne contenants qu'un individu. **La distance du saut minimal ne semble pas être approprié.**
+
+## 2.1.2 Avec la distance de ward
+```{r,fig.width=15, fig.height=7, fig.align='center',echo=FALSE}
+set.seed(345)
+cah_ward=hclust(dist(data,method="euclidean"), method = "ward.D")
+
+wf1=ggdendrogram(cah_ward, labels = F)+
+  ggtitle("Dendogramme des classes")
+
+perte_df = tibble::tibble(groupes = c(1:15), inertie = rev(cah_ward$height)[1:15])
+
+wf2 = ggplot(data = perte_df)+ aes(x=groupes, y=inertie)+
+  geom_line(color = "blue")+
+  ggtitle("Perte d'inertie en fonction de nombre de classes")
+
+grid.arrange(wf1,wf2,nrow=1)
+```
+
+Le tracé de la perte d'inertie nous incite à choisir une partition en 3 groupes (lecture de gauche à droite : juste avant le coude ou changement de pente s'opérant au passage de 2 à 3 groupes). 
+
+```{r,echo=FALSE}
+set.seed(123)
+K=3
+gpe.ward = cutree(cah_ward,k=K)
+summary(as.factor(gpe.ward))
+```
+
+La classification des données avec *la distance de Ward* se répartissent en trois classes distinctes. La première classe compte 2735 joueurs, la deuxième 964, et la troisième 301. Cette répartition nous donne un aperçu de la distribution des observations dans chaque classe.
+
+```{r,fig.width=6, fig.height=3, fig.align='center',echo=FALSE}
+ggplot(color_branches(cah_ward, k = 3), labels = F)+
+  ggtitle("Différentes classes retenues par couleur")
+```
+
+### Analyse des caractéristiques des groupes
+
+On s'oriente sur une partition en 3 groupes.
+
+```{r,comment=NA,warning=FALSE,fig.align='center',echo=FALSE}
+# Convertir les groupes en facteur
+data$Groupes = factor(gpe.ward)
+interpcah=catdes(data,num.var = 16)
+#stargazer(head(interpcah$quanti.var, 5),type="text") # Affichage des 5 premières lignes 
+interpcah$quanti.var
+```
+Ces résultats nous donne une indication des contributions des variables à la variation des clusters. Eta2 est une mesure de l'effet de taille, indiquant la proportion de la variance totale expliquée par chaque variable. Plus la valeur d'Eta2 est élevée, plus la variable est importante pour la différenciation des clusters. En examinant les résultats, nous pouvons voir que les variables telles que TimeSurvivedPg, RoundsPlayed, Losses, Top10Ratio, KillsPg, Assists, et Boosts ont des valeurs d'Eta2 élevées, ce qui suggère qu'elles contribuent fortement à la variation des clusters. Cela signifie que ces variables sont particulièrement importantes pour différencier les joueurs en clusters distincts.
+D'autre part, les variables comme HealsPg, LongestTimeSurvived, HeadshotKillsPg, WinRatio, AvgRideDistance, AvgWalkDistance, HealsPg, et MoveDistancePg ont des valeurs d'Eta2 relativement plus faibles, ce qui indique qu'elles contribuent moins à la variation des clusters. Cependant, elles restent significatives dans la différenciation des joueurs dans une certaine mesure.
+
+On cherche ensuite à interpréter les groupes obtenus à l'aide de la fonction catdes.
+
+```{r,echo=FALSE,include=FALSE}
+stargazer(interpcah$quanti$`1`,type="text")
+stargazer(interpcah$quanti$`2`,type="text")
+stargazer(interpcah$quanti$`3`,type="text")
+```
+* Le *groupe 1*  se caractérise par plusieurs aspects. Ces joueurs sont caractérisés par un nombre moyen de soins utilisé par partie (HealsPg) très faible, ce qui suggère qu'ils ont moins souvent recours à des objets de soin pour se régénérer. Le faible nombre de parties perdues (Losses) peut être associé au faible nombre de parties jouées (RoundsPlayed) par ces joueurs. Ces joueurs ont également tendance à utiliser moins de boosts et à réaliser moins de headshotskillpg par partie.
+En résumé, les joueurs du groupe 1 semblent être moins impliqués dans le jeu, moins efficaces, moins performants, moins aggressifs dans les combats et moins mobiles. Cela peut signifie qu'ils adoptent une approche plus passive ou moins compétitive dans PUBG.
+
+* Le *groupe 2* se caractérise par joueurs qui passent plus de temps par partie (TimeSurvivedPg) et ont un ratio de Top 10 plus élevé.
+De plus, les joueurs de ce groupe infligent plus de dégâts(DamagePg), réalisent plus de frags(KillsPg) et parcourent plus de distance par partie(MoveDistancePg).D'autre part, certaines variables ont des moyennes négatives, mais des écarts-types élevés, ce qui peut indiquer une grande variabilité au sein de ce groupe pour ces variables.
+Globalement, le groupe 2 semble être composé de joueurs qui passent plus de temps en jeu, ont des performances plus élevées en termes de dégâts infligés, de frags réalisés et de distance parcourue, et ont un ratio de Top 10 plus élevé que la moyenne globale des joueurs.
+
+* Dans *le groupe 3*, les joueurs se distinguent par des performances élevées par plusieurs variables.Tout d'abord, les variables telles que "RoundsPlayed", "AvgRideDistance", "Losses", "LongestTimeSurvived", "Kills", "Assists", "MoveDistance", "Boosts", ont toutes des moyennes significativement supérieures à la moyenne globale. Cela signifie que les joueurs de ce groupe sont très actifs, jouant un grand nombre de parties, parcourant en moyenne de longues distances à pied et en véhicule, infligeant moins de dégâts, soignant et tuant moins fréquemment des adversaires, et passant beaucoup de temps en jeu.
+
+On peut retrouver les mêmes conclusions visuellement avec la commande : plot.catdes(interpcah,barplot=T)
+
+```{r,echo=FALSE,comment=NA,fig.width=6, fig.height=3, fig.align='center',include=FALSE}
+plot.catdes(interpcah,barplot=T)
+```
+
+# 3. Méthode des Kmeans
+
+La méthode des kmeans nous permet de reclasser les individus mals classés de la CAH. Pour initialiser l'agorithme nous utilisons les résultats trouvés par la CAH : le nombre de classe optimal k=3 de la CAH. On préfèrera utiliser l'option `nstart` du kmeans pour stabiliser les résultats
+
+```{r,echo=FALSE}
+set.seed(12345)
+PUBG.kmeans=kmeans(data,centers=3,nstart = 50)
+data$cluster=PUBG.kmeans$cluster
+```
+
+Nous pouvons identifier les individus qui ont été reclassés.
+
+```{r,echo=FALSE}
+set.seed(123)
+reclass = data |> 
+  filter(Groupes != cluster)
+
+table(reclass$cluster)
+
+table(PUBG.kmeans$cluster,data$Groupes)
+```
+Nous constatons que la méthode des K-means propose des clusters relativement équilibrés, avec respectivement 189, 348 et 873 observations dans les clusters 1, 2 et 3. Cela suggère une répartition assez uniforme des données dans ces clusters.
+Le tableau croisé montre la distribution des observations entre les clusters de l'algorithme K-means et les groupes de la classification ascendante hiérarchique (CAH).Par exemple, il y a 2578 observations qui appartiennent au cluster 1 de K-means et au groupe 1 de la CAH.
+
+Représentons les nuages de points par groupes des kmeans.
+
+```{r,echo=FALSE,fig.width=15, fig.height=7,fig.align='center'}
+pca_kmeans = PCA(data, quali.sup = c("Groupes","cluster"), graph = F)
+plotellipses(pca_kmeans)
+```
+La représentation des classes sur le plan factoriel nous permet de voir que les kmeans séparent mieux les données que la CAH.
+
+Pour mieux évaluer la performance de la méthode des kmeans par rapport à la CAH, examinons les indices de silhouette pour chaque méthode. Cela nous donnera une indication de la qualité de la séparation des clusters. 
+
+```{r,echo=FALSE,comment=NA,fig.align='center',fig.width=12, fig.height=5}
+set.seed(123)
+# Calculons l'indice de silhouette pour CAH et K-means
+silhouette_cah = silhouette(gpe.ward, dist(data))
+avg_silhouette_cah = mean(silhouette_cah[, "sil_width"])
+
+silhouette_kmeans = silhouette(PUBG.kmeans$cluster, dist(data))
+avg_silhouette_kmeans = mean(silhouette_kmeans[, "sil_width"])
+
+# Comparons les indices
+print(paste("Silhouette CAH: ", avg_silhouette_cah))
+print(paste("Silhouette K-means: ", avg_silhouette_kmeans))
+
+# Générons les graphiques de silhouette
+silhouette_cah = silhouette(gpe.ward, dist(data))
+silhouette_kmeans = silhouette(PUBG.kmeans$cluster, dist(data))
+
+# Utilisons par(mfrow = c(1, 2)) pour aligner les plots horizontalement
+#par(mfrow = c(1, 2))
+#plot(silhouette_cah, col = 1:3, border = NA, main = "Silhouette Plot pour CAH")
+#plot(silhouette_kmeans, col = 1:3, border = NA, main = "Silhouette Plot pour K-means")
+```
+Nous avons évalué et comparé les clusters générés par la Classification Ascendante Hiérarchique (CAH) et la méthode des K-means en utilisant l'indice de silhouette, qui mesure à quel point chaque observation se trouve bien dans son cluster par rapport aux clusters voisins. Les résultats obtenus sont les suivants :
+
+- Pour la CAH (Classification Ascendante Hiérarchique), la valeur de la silhouette est de 0.32, ce qui indique une assez bonne séparation des clusters.
+
+- Pour la méthode des k-means, la valeur de la silhouette est légèrement plus élevée, à 0.36, ce qui suggère une séparation légèrement meilleure des clusters par rapport à la CAH.
+
+Dans l'ensemble, les deux méthodes semblent donner des résultats assez similaires en termes de structure de clustering, mais le k-means pourrait légèrement mieux séparer les clusters selon cet indice de silhouette.
+
+# 4. Algorithme EM
+
+L'algorithme EM (Expectation-Maximization) vise à estimer les paramètres d'un modèle statistique à partir de données incomplètes ou partielles. Dans le contexte de la classification, l'algorithme EM peut être appliqué pour estimer les paramètres d'un modèle de mélange de gaussiennes. Ce modèle probabiliste permet de représenter des données provenant de plusieurs groupes ou clusters distincts.
+
+## 4.1. Mise en place de l'algorithme
+
+```{r, echo=FALSE,comment=NA}
+set.seed(543)
+data_split=data[,1:15]
+n_clusters = Mclust(data_split)$G
+em_model = Mclust(data_split, G = n_clusters, modelNames = "EII")
+summary(em_model)
+# Obtenir les groupes assignés à chaque observation
+clusters = em_model$classification
+```
+
+On constate que le modèle utilisé est un modèle de mélange de gaussiennes fini avec 5 composantes. La table de clusterisation indique la répartition des observations dans les différents groupes. De ce fait, les observations sont réparties dans 5 groupes: *le premier groupe* contient 1029 observations, *le deuxième groupe* contient 2277 observations, *le troisième groupe* contient 83 observations, *le quatrième groupe* contient 73 observations et le *cinquième groupe* contient 538 observations.
+
+## 4.2. représentation graphique des classes
+
+```{r ,fig.height=8, fig.width=12, echo=FALSE,include=FALSE}
+set.seed(123)
+# Mise en place d'un dataframe
+data_clustered = data.frame(data_split, clusters)
+#str(data_clustered)
+data_clustered$clusters=as.factor(data_clustered$clusters)
+pca_melange = PCA(data_clustered , quali.sup = c("clusters"), graph = F)
+```
+
+```{r, fig.height=5, fig.width=12,fig.align='center',echo=FALSE}
+plotellipses(pca_melange)
+```
+
+## 4.3. Caractéristiques des groupes en fonction des variables
+
+```{r, fig.width=12,echo=FALSE}
+# Calculer les moyennes pour chaque groupe
+moy_caract = aggregate(data_clustered[, 1:15], 
+                        by = list(clusters = data_clustered$clusters), mean)
+t(moy_caract[-c(1,10)])
+```
+```{r,echo=FALSE}
+set.seed(12345)
+silhouette_EM = silhouette(em_model$classification, dist(data))
+avg_silhouette_EM = mean(silhouette_EM[, "sil_width"])
+print(paste("Silhouette EM: ", avg_silhouette_EM))
+```
+
+
+# Conclusion
+
+Le projet d'apprentissage non supervisé sur les performances des joueurs de PUBG: Battlegrounds a révélé des insights significatifs grâce à l'application méthodique de techniques avancées d'analyse de données. En utilisant la Classification Ascendante Hiérarchique (CAH), la méthode des K-means et la méthode EM, nous avons pu segmenter efficacement les joueurs en groupes distincts qui reflètent des styles de jeu et des stratégies variées.
+
+Les indices de silhouette ont montré que la méthode des K-means est supérieure à la CAH en termes de cohérence et de délimitation des clusters. Cela a été corroboré par des scores de silhouette de 0.36 pour K-means contre 0.32 pour la CAH et 0.24 pour la méthode EM, indiquant que les clusters formés par K-means sont plus homogènes et mieux séparés. Cette clarté dans la segmentation permet une interprétation plus précise et une application plus ciblée des résultats pour améliorer les stratégies de jeu ou pour le développement de fonctionnalités personnalisées dans le jeu.
+
+Les analyses des temps d'exécution ont également favorisé K-means, démontrant une capacité supérieure à gérer de grands volumes de données rapidement et efficacement, ce qui est crucial dans les environnements de big data aujourd'hui.
+
+Les profils de joueurs dérivés de cette étude - les Survivants Habiles, les Joueurs de Soutien, et les Explorateurs et Collecteurs - montrent que différentes stratégies peuvent être adoptées pour réussir dans PUBG. Chaque groupe possède des caractéristiques uniques qui peuvent être exploitées pour des améliorations tactiques ou des ajustements dans le gameplay.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
